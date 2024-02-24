@@ -1,0 +1,54 @@
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import from_json, col
+from pyspark.sql.types import StructType, StringType
+
+# Initialize Spark session
+spark = SparkSession.builder \
+    .appName("AdvertiseXDataProcessing") \
+    .getOrCreate()
+
+# Define schema for ad impressions data
+impressions_schema = StructType() \
+    .add("ad_creative_id", StringType()) \
+    .add("user_id", StringType()) \
+    .add("timestamp", StringType()) \
+    .add("website", StringType())
+
+# Subscribe to Kafka topic for ad impressions
+impressions_df = spark \
+    .readStream \
+    .format("kafka") \
+    .option("kafka.bootstrap.servers", "localhost:9092") \
+    .option("subscribe", "ad_impressions_topic") \
+    .load() \
+    .selectExpr("CAST(value AS STRING)") \
+    .select(from_json("value", impressions_schema).alias("data")) \
+    .select("data.*")
+
+# Define schema for clicks/conversions data
+clicks_conversions_schema = StructType() \
+    .add("timestamp", StringType()) \
+    .add("user_id", StringType()) \
+    .add("ad_campaign_id", StringType()) \
+    .add("conversion_type", StringType())
+
+# Read clicks/conversions data from CSV
+clicks_conversions_df = spark \
+    .read \
+    .format("csv") \
+    .option("header", "true") \
+    .load("/path/to/clicks_conversions.csv")
+
+# Join ad impressions with clicks/conversions
+joined_df = impressions_df.join(clicks_conversions_df, "user_id")
+
+# Write processed data to storage (e.g., HDFS, S3)
+query = joined_df \
+    .writeStream \
+    .format("parquet") \
+    .option("checkpointLocation", "/path/to/checkpoint") \
+    .outputMode("append") \
+    .start("/path/to/output")
+
+# Error handling and monitoring (example)
+query.awaitTermination()
